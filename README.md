@@ -1,35 +1,85 @@
 # event-driven-backtester
 
-**Event-driven historical simulator** that replays market ticks and strategy signals second by second to evaluate realistic execution paths. Sixth module of the [quant-core-infra](https://github.com/juanmmm21/quant-core-infra) ecosystem.
+Simulador histórico **guiado por eventos** que reproduce ticks de mercado y señales de estrategia segundo a segundo para evaluar rutas de ejecución realistas. Sexto módulo del ecosistema [quant-core-infra](https://github.com/juanmmm21/quant-core-infra).
 
-Repository: [github.com/juanmmm21/event-driven-backtester](https://github.com/juanmmm21/event-driven-backtester)
-
----
-
-## Objective
-
-This project demonstrates:
-
-- Event-driven simulation instead of naive vectorized loops
-- Strict chronological replay with deterministic ordering
-- Decimal-based portfolio accounting
-- JSONL integration with `websocket-feed-handler`, `alpha-signal-generator`
+Repositorio: [github.com/juanmmm21/event-driven-backtester](https://github.com/juanmmm21/event-driven-backtester)
 
 ---
 
-## Event model
+## Qué es y qué problema resuelve
 
-| Event | Source | Effect |
-|-------|--------|--------|
-| `new_tick` | Trade JSONL | Updates mark price and equity |
-| `signal` | Signal JSONL | Submits market order via simulated broker |
-| `order_filled` | Internal | Updates cash and position state |
+Los backtesters vectorizados (aplicar una regla a toda una columna de precios de golpe) son rápidos pero **irreales**: asumen ejecución instantánea al cierre de la vela, sin orden temporal entre ticks y señales, y sin estado de cartera intermedio.
 
-Events are ordered by `(event_time, sequence)` to break ties deterministically.
+Este módulo simula el paso del tiempo como en producción:
+
+1. Llega un tick → se actualiza el precio de mercado
+2. Llega una señal → se envía una orden al broker simulado
+3. La orden se ejecuta al último precio conocido
+4. La cartera registra cash, posición y curva de equity
+
+Cada paso es un **evento** procesado en orden cronológico estricto.
 
 ---
 
-## Architecture
+## Rol en quant-core-infra
+
+```text
+websocket-feed-handler ──► ticks JSONL ──┐
+alpha-signal-generator ──► signals JSONL ──► event-driven-backtester
+                                                    │
+                                          market-condition-simulator (fricciones)
+                                                    │
+                                          quant-metrics-calculator (métricas)
+```
+
+Valida si las señales de `alpha-signal-generator` habrían sido rentables con contabilidad decimal rigurosa.
+
+---
+
+## Objetivo
+
+Demuestra:
+
+- Simulación event-driven vs bucles vectorizados
+- Replay cronológico determinista
+- Contabilidad de cartera con `Decimal`
+- Integración JSONL con módulos upstream
+
+---
+
+## Modelo de eventos
+
+| Evento | Origen | Efecto |
+|--------|--------|--------|
+| `new_tick` | JSONL de trades | Actualiza mark price y equity |
+| `signal` | JSONL de señales | Crea orden de mercado |
+| (interno) fill | Broker simulado | Actualiza cash y posición |
+
+Ordenación: `(event_time, sequence)` — los ticks se encolan antes que las señales con el mismo timestamp.
+
+---
+
+## Cómo funciona
+
+1. **Carga:** ticks y señales desde JSONL.
+2. **Cola:** `EventQueue` (heap) ordena todos los eventos cronológicamente.
+3. **Tick:** actualiza precio en broker y marca la cartera a mercado.
+4. **Señal `enter`:** broker crea orden BUY si no hay posición long.
+5. **Señal `exit`:** broker crea orden SELL si hay posición long.
+6. **Fill:** se aplica al portfolio (cash ± notional ± comisión).
+7. **Resultado:** `BacktestResult` con fills, equity curve y PnL final.
+
+### Parámetros de `BacktestConfig`
+
+| Campo | Descripción | Ejemplo |
+|-------|-------------|---------|
+| `initial_cash` | Capital inicial | `10000` |
+| `position_size` | Cantidad fija por operación | `0.01` BTC |
+| `commission_rate` | Comisión proporcional | `0.001` (0.1 %) |
+
+---
+
+## Arquitectura
 
 ```text
 Ticks JSONL + Signals JSONL
@@ -39,42 +89,41 @@ EventQueue (priority heap)
         │
         ▼
 BacktestEngine
-   ├─ Portfolio (cash, positions, equity curve)
-   ├─ SimulatedBroker (market fills at last price)
-   └─ EventBus (extensible handler registry)
+   ├─ Portfolio (cash, posiciones, equity curve)
+   ├─ SimulatedBroker (fills a mercado)
+   └─ EventBus (registro extensible de handlers)
         │
         ▼
-BacktestResult (fills, equity curve, final PnL)
+BacktestResult
 ```
 
-### Core components
+### Componentes
 
-| Module | Responsibility |
+| Módulo | Responsabilidad |
 |--------|----------------|
-| `models.py` | Events, orders, fills, portfolio state |
-| `queue.py` | Chronological event priority queue |
-| `portfolio.py` | Decimal cash/position tracking |
-| `broker.py` | Signal-to-order translation and fills |
-| `engine.py` | Main event replay loop |
-| `ingest.py` | JSONL parsing for ticks and signals |
-| `pipeline.py` | End-to-end run and serialization |
+| `queue.py` | Cola de prioridad cronológica |
+| `portfolio.py` | Cash, posiciones, curva de equity |
+| `broker.py` | Traducción señal → orden → fill |
+| `engine.py` | Bucle principal de replay |
+| `ingest.py` | Parsing JSONL |
+| `pipeline.py` | Run end-to-end + serialización |
 
-### Technical decisions
+### Decisiones técnicas
 
-- **Decimal** for balances, prices, commissions
-- **Ticks processed before signals** at identical timestamps
-- **Immediate market fills** at last known price (latency/slippage deferred to `market-condition-simulator`)
-- **Silent rejection** of invalid fills (e.g. insufficient cash) to keep the replay loop resilient
+- **Decimal** en balances, precios y comisiones
+- **Ticks antes que señales** en timestamps idénticos
+- **Fills inmediatos** a último precio (latencia/slippage en `market-condition-simulator`)
+- **Rechazo silencioso** de fills inválidos (cash insuficiente) para robustez del loop
 
 ---
 
-## Requirements
+## Requisitos
 
 - Python **3.11+**
 
 ---
 
-## Installation
+## Instalación
 
 ```bash
 cd event-driven-backtester
@@ -85,7 +134,7 @@ pip install -e ".[dev]"
 
 ---
 
-## CLI usage
+## Uso CLI
 
 ```bash
 event-driven-backtester run \
@@ -93,14 +142,36 @@ event-driven-backtester run \
   --signals samples/btcusdt_signals.jsonl \
   --symbol BTCUSDT \
   --initial-cash 10000 \
-  --position-size 0.01
+  --position-size 0.01 \
+  --commission-rate 0.001 \
+  --output result.json
+```
+
+### Salida esperada (extracto)
+
+```json
+{
+  "symbol": "BTCUSDT",
+  "initial_cash": "10000",
+  "final_equity": "10002.45",
+  "fill_count": 2,
+  "fills": [
+    {
+      "side": "buy",
+      "price": "102.0",
+      "quantity": "0.01",
+      "commission": "0.00102"
+    }
+  ],
+  "equity_curve": [...]
+}
 ```
 
 ---
 
-## JSONL formats
+## Formatos JSONL
 
-### Trade ticks (`websocket-feed-handler` compatible)
+### Ticks
 
 ```json
 {
@@ -112,7 +183,7 @@ event-driven-backtester run \
 }
 ```
 
-### Strategy signals (`alpha-signal-generator` compatible)
+### Señales
 
 ```json
 {
@@ -129,7 +200,7 @@ event-driven-backtester run \
 
 ---
 
-## Programmatic usage
+## Uso programático
 
 ```python
 from decimal import Decimal
@@ -145,18 +216,12 @@ result = run_backtest_pipeline(
     commission_rate=Decimal("0.001"),
 )
 
-engine = BacktestEngine(
-    BacktestConfig(
-        symbol="BTCUSDT",
-        initial_cash=Decimal("10000"),
-        position_size=Decimal("0.01"),
-    )
-)
+print(f"fills: {len(result.fills)}, equity: {result.final_equity}")
 ```
 
 ---
 
-## Development
+## Desarrollo
 
 ```bash
 pytest -q
@@ -166,15 +231,14 @@ mypy src
 
 ---
 
-## Ecosystem integration
+## Roadmap
 
-```text
-websocket-feed-handler ──► ticks JSONL ──┐
-alpha-signal-generator ──► signals JSONL ──► event-driven-backtester ──► quant-metrics-calculator
-```
+- [ ] Soporte short selling y margin
+- [ ] Integración directa con `market-condition-simulator`
+- [ ] Múltiples símbolos en un mismo backtest
 
 ---
 
-## License
+## Licencia
 
 MIT
