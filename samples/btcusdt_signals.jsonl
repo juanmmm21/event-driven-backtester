@@ -1,0 +1,2 @@
+{"strategy_id": "rsi_mean_reversion", "symbol": "BTCUSDT", "action": "enter", "side": "long", "confidence": 0.8, "reason": "rsi oversold", "event_time": "2024-01-01T12:02:00Z", "reference_price": "102.0"}
+{"strategy_id": "rsi_mean_reversion", "symbol": "BTCUSDT", "action": "exit", "side": "long", "confidence": 0.75, "reason": "rsi recovered", "event_time": "2024-01-01T12:05:00Z", "reference_price": "105.0"}

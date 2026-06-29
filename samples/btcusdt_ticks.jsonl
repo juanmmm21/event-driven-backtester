@@ -1,0 +1,6 @@
+{"symbol": "BTCUSDT", "trade_id": "1", "price": "100.0", "quantity": "0.01", "event_time": "2024-01-01T12:00:00Z"}
+{"symbol": "BTCUSDT", "trade_id": "2", "price": "101.0", "quantity": "0.01", "event_time": "2024-01-01T12:01:00Z"}
+{"symbol": "BTCUSDT", "trade_id": "3", "price": "102.0", "quantity": "0.01", "event_time": "2024-01-01T12:02:00Z"}
+{"symbol": "BTCUSDT", "trade_id": "4", "price": "103.0", "quantity": "0.01", "event_time": "2024-01-01T12:03:00Z"}
+{"symbol": "BTCUSDT", "trade_id": "5", "price": "104.0", "quantity": "0.01", "event_time": "2024-01-01T12:04:00Z"}
+{"symbol": "BTCUSDT", "trade_id": "6", "price": "105.0", "quantity": "0.01", "event_time": "2024-01-01T12:05:00Z"}
