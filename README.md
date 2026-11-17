@@ -117,6 +117,38 @@ BacktestResult
 
 ---
 
+## Out-of-sample validation (walk-forward and purged k-fold)
+
+A single backtest over all history lets you choose the strategy with hindsight. `validate`
+replays every candidate (one signals file per strategy or parameter set) **once**, samples its
+equity on a regular bar grid, and then, fold by fold, picks the candidate with the best Sharpe on
+the **training** bars only and scores that pick on **test** bars it never saw.
+
+| Method | Folds | Leakage control |
+|--------|-------|-----------------|
+| `walk-forward` | rolling (or `--anchored`) train window → next test window | the last `h - 1` training bars before each test window are purged |
+| `purged-kfold` | contiguous blocks; every block is the test set once | training bars whose span `[i - h + 1, i]` overlaps the test block are purged, plus an **embargo** of `ceil(n × embargo_pct)` bars after it (López de Prado, *AFML* ch. 7) |
+
+`h` (`--label-horizon`) is how many bars of history one bar's return depends on: an open
+position carries information from the bar it was entered. By default it is the 90th percentile
+of the candidates' round-trip lengths.
+
+```bash
+event-driven-backtester validate \
+  --ticks ticks.jsonl \
+  --candidate rsi_mean_reversion=signals_rsi.jsonl \
+  --candidate macd_crossover=signals_macd.jsonl \
+  --symbol BTCUSDT --bar-seconds 3600 \
+  --method purged-kfold --n-splits 5 --embargo-pct 0.01 \
+  --output validation.json
+```
+
+The report lists each fold (bars trained/tested/purged, the pick, its in-sample and
+out-of-sample Sharpe), the concatenated out-of-sample Sharpe and return, and a `returns_matrix`
+(bars × candidates) ready for `quant-metrics-calculator overfit` (deflated Sharpe and PBO).
+
+---
+
 ## Requirements
 
 - Python **3.11+**
