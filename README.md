@@ -149,6 +149,30 @@ out-of-sample Sharpe), the concatenated out-of-sample Sharpe and return, and a `
 
 ---
 
+## Passive limit orders and external fills
+
+The built-in broker fills market orders instantly. To evaluate passive execution, keep the queue
+model in `market-condition-simulator` and exchange files:
+
+```bash
+# 1. signals → passive limit orders priced off the last trade (rounded to the tick, never more aggressive)
+event-driven-backtester orders --ticks ticks.jsonl --signals signals.jsonl --symbol BTCUSDT \
+  --quantity 0.001 --offset-bps 0 --tick-size 0.01 --time-in-force-seconds 60 --output orders.jsonl
+
+# 2. simulate fills on recorded L2 data (queue-position model)
+market-condition-simulator queue-fill --book book.jsonl --orders orders.jsonl --symbol BTCUSDT \
+  --model queue --output fills.jsonl
+
+# 3. book exactly those fills (signals are ignored in this mode)
+event-driven-backtester run --ticks ticks.jsonl --signals signals.jsonl --symbol BTCUSDT \
+  --executions fills.jsonl --output result.json
+```
+
+Fills that cannot be booked (e.g. a sell whose entry never filled) are counted in
+`rejected_fills` instead of being silently dropped.
+
+---
+
 ## Requirements
 
 - Python **3.11+**
