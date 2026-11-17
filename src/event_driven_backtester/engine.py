@@ -23,6 +23,7 @@ class BacktestEngine:
         self._portfolio = Portfolio(config.initial_cash, config.symbol)
         self._broker = SimulatedBroker(config)
         self._processed_events = 0
+        self._rejected_fills = 0
 
     @property
     def portfolio(self) -> Portfolio:
@@ -32,17 +33,25 @@ class BacktestEngine:
         self,
         ticks: list[TradeTick],
         signals: list[SignalPayload],
+        external_fills: list[Fill] | None = None,
     ) -> BacktestResult:
+        """Replay ticks and signals; with ``external_fills`` signals are ignored and those
+        executions (e.g. from market-condition-simulator's queue model) are booked instead."""
         if not ticks:
             raise ValueError("ticks must not be empty")
 
-        queue = self._build_queue(ticks, signals)
+        queue = self._build_queue(ticks, signals if external_fills is None else [])
+        for fill in external_fills or []:
+            if fill.symbol == self._config.symbol:
+                queue.push(BacktestEvent.from_fill(fill, queue.next_sequence()))
         for event in queue:
             self._processed_events += 1
             if event.event_type is EventType.NEW_TICK:
                 self._on_tick(event)
             elif event.event_type is EventType.SIGNAL:
                 self._on_signal(event)
+            elif event.event_type is EventType.ORDER_FILLED and isinstance(event.payload, Fill):
+                self._apply_fill(event.payload)
 
         return BacktestResult(
             config=self._config,
@@ -51,6 +60,7 @@ class BacktestEngine:
             final_cash=self._portfolio.cash,
             final_equity=self._portfolio.equity(),
             processed_events=self._processed_events,
+            rejected_fills=self._rejected_fills,
         )
 
     def _build_queue(
@@ -97,4 +107,4 @@ class BacktestEngine:
         try:
             self._portfolio.apply_fill(fill)
         except ValueError:
-            return
+            self._rejected_fills += 1

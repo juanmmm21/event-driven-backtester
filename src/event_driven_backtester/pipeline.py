@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from event_driven_backtester.engine import BacktestEngine
+from event_driven_backtester.execution import load_external_fills
 from event_driven_backtester.ingest import load_signals, load_trade_ticks
 from event_driven_backtester.models import BacktestConfig, BacktestResult
 from event_driven_backtester.validation import (
@@ -20,6 +21,7 @@ def serialize_backtest_result(result: BacktestResult) -> dict[str, Any]:
         "final_cash": str(result.final_cash),
         "final_equity": str(result.final_equity),
         "processed_events": result.processed_events,
+        "rejected_fills": result.rejected_fills,
         "fill_count": len(result.fills),
         "fills": [
             {
@@ -52,9 +54,13 @@ def run_backtest_pipeline(
     initial_cash: Decimal,
     position_size: Decimal,
     commission_rate: Decimal,
+    executions_path: str | None = None,
 ) -> BacktestResult:
     ticks = load_trade_ticks(ticks_path, default_symbol=symbol)
     signals = load_signals(signals_path, default_symbol=symbol)
+    external = (
+        load_external_fills(executions_path, default_symbol=symbol) if executions_path else None
+    )
     config = BacktestConfig(
         symbol=symbol,
         initial_cash=initial_cash,
@@ -62,7 +68,7 @@ def run_backtest_pipeline(
         commission_rate=commission_rate,
     )
     engine = BacktestEngine(config)
-    return engine.run(ticks, signals)
+    return engine.run(ticks, signals, external_fills=external)
 
 
 def serialize_validation_report(report: ValidationReport) -> dict[str, Any]:
