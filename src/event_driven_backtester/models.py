@@ -189,6 +189,7 @@ class BacktestResult:
     final_cash: Decimal
     final_equity: Decimal
     processed_events: int
+    rejected_fills: int = 0
 
 
 @dataclass(order=True, slots=True)
@@ -211,6 +212,14 @@ class BacktestEvent:
             sort_index=(signal.event_time, sequence),
             event_type=EventType.SIGNAL,
             payload=signal,
+        )
+
+    @classmethod
+    def from_fill(cls, fill: Fill, sequence: int) -> BacktestEvent:
+        return cls(
+            sort_index=(fill.filled_at, sequence),
+            event_type=EventType.ORDER_FILLED,
+            payload=fill,
         )
 
     @classmethod

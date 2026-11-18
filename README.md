@@ -117,6 +117,62 @@ BacktestResult
 
 ---
 
+## Out-of-sample validation (walk-forward and purged k-fold)
+
+A single backtest over all history lets you choose the strategy with hindsight. `validate`
+replays every candidate (one signals file per strategy or parameter set) **once**, samples its
+equity on a regular bar grid, and then, fold by fold, picks the candidate with the best Sharpe on
+the **training** bars only and scores that pick on **test** bars it never saw.
+
+| Method | Folds | Leakage control |
+|--------|-------|-----------------|
+| `walk-forward` | rolling (or `--anchored`) train window → next test window | the last `h - 1` training bars before each test window are purged |
+| `purged-kfold` | contiguous blocks; every block is the test set once | training bars whose span `[i - h + 1, i]` overlaps the test block are purged, plus an **embargo** of `ceil(n × embargo_pct)` bars after it (López de Prado, *AFML* ch. 7) |
+
+`h` (`--label-horizon`) is how many bars of history one bar's return depends on: an open
+position carries information from the bar it was entered. By default it is the 90th percentile
+of the candidates' round-trip lengths.
+
+```bash
+event-driven-backtester validate \
+  --ticks ticks.jsonl \
+  --candidate rsi_mean_reversion=signals_rsi.jsonl \
+  --candidate macd_crossover=signals_macd.jsonl \
+  --symbol BTCUSDT --bar-seconds 3600 \
+  --method purged-kfold --n-splits 5 --embargo-pct 0.01 \
+  --output validation.json
+```
+
+The report lists each fold (bars trained/tested/purged, the pick, its in-sample and
+out-of-sample Sharpe), the concatenated out-of-sample Sharpe and return, and a `returns_matrix`
+(bars × candidates) ready for `quant-metrics-calculator overfit` (deflated Sharpe and PBO).
+
+---
+
+## Passive limit orders and external fills
+
+The built-in broker fills market orders instantly. To evaluate passive execution, keep the queue
+model in `market-condition-simulator` and exchange files:
+
+```bash
+# 1. signals → passive limit orders priced off the last trade (rounded to the tick, never more aggressive)
+event-driven-backtester orders --ticks ticks.jsonl --signals signals.jsonl --symbol BTCUSDT \
+  --quantity 0.001 --offset-bps 0 --tick-size 0.01 --time-in-force-seconds 60 --output orders.jsonl
+
+# 2. simulate fills on recorded L2 data (queue-position model)
+market-condition-simulator queue-fill --book book.jsonl --orders orders.jsonl --symbol BTCUSDT \
+  --model queue --output fills.jsonl
+
+# 3. book exactly those fills (signals are ignored in this mode)
+event-driven-backtester run --ticks ticks.jsonl --signals signals.jsonl --symbol BTCUSDT \
+  --executions fills.jsonl --output result.json
+```
+
+Fills that cannot be booked (e.g. a sell whose entry never filled) are counted in
+`rejected_fills` instead of being silently dropped.
+
+---
+
 ## Requirements
 
 - Python **3.11+**
